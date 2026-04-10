@@ -1,0 +1,487 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Store Signage Pro - Windows Edition</title>
+    
+    <!-- Tailwind CSS (디자인) -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- FontAwesome (아이콘) -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- React & ReactDOM -->
+    <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    
+    <!-- Babel (React 코드 번역) -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <style>
+        body { background-color: #000000; margin: 0; overflow: hidden; }
+        .custom-scrollbar::-webkit-scrollbar { width: 5px; }
+        .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 10px; }
+        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.3); }
+        .player-wrapper { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useRef, useCallback } = React;
+
+        // ==========================================
+        // 🚀 안정적인 자체 제작 YouTube Player 엔진
+        // ==========================================
+        const YouTubePlayer = ({ videoId, isPlaying, isMuted, onEnded, onError }) => {
+            const playerRef = useRef(null);
+            const containerRef = useRef(null);
+            const initialized = useRef(false);
+            const [isReady, setIsReady] = useState(false);
+
+            useEffect(() => {
+                if (initialized.current || !videoId) return;
+                initialized.current = true;
+
+                const initPlayer = () => {
+                    if (!containerRef.current) return;
+                    
+                    const el = document.createElement('div');
+                    containerRef.current.appendChild(el);
+
+                    const currentOrigin = (window.location.origin && window.location.origin !== "null") 
+                        ? window.location.origin 
+                        : "https://localhost";
+
+                    playerRef.current = new window.YT.Player(el, {
+                        width: '100%',
+                        height: '100%',
+                        videoId: videoId,
+                        host: 'https://www.youtube.com',
+                        playerVars: {
+                            autoplay: 1,
+                            controls: 0,
+                            rel: 0,
+                            modestbranding: 1,
+                            mute: isMuted ? 1 : 0,
+                            enablejsapi: 1,
+                            disablekb: 1,
+                            playsinline: 1,
+                            origin: currentOrigin,          
+                            widget_referrer: currentOrigin  
+                        },
+                        events: {
+                            onReady: (e) => {
+                                setIsReady(true);
+                                if (isPlaying) e.target.playVideo();
+                            },
+                            onStateChange: (e) => {
+                                if (e.data === window.YT.PlayerState.ENDED) onEnded();
+                            },
+                            onError: (e) => onError(e.data)
+                        }
+                    });
+                };
+
+                if (!window.YT || !window.YT.Player) {
+                    const tag = document.createElement('script');
+                    tag.src = "https://www.youtube.com/iframe_api";
+                    document.head.appendChild(tag);
+                    window.onYouTubeIframeAPIReady = initPlayer;
+                } else {
+                    initPlayer();
+                }
+
+                return () => {
+                    if (playerRef.current && playerRef.current.destroy) {
+                        playerRef.current.destroy();
+                    }
+                    if (containerRef.current) {
+                        containerRef.current.innerHTML = '';
+                    }
+                };
+            }, [videoId]);
+
+            useEffect(() => {
+                if (isReady && playerRef.current && playerRef.current.loadVideoById) {
+                    playerRef.current.loadVideoById(videoId);
+                }
+            }, [videoId, isReady]);
+
+            useEffect(() => {
+                if (isReady && playerRef.current) {
+                    if (isPlaying) playerRef.current.playVideo();
+                    else playerRef.current.pauseVideo();
+                }
+            }, [isPlaying, isReady]);
+
+            useEffect(() => {
+                if (isReady && playerRef.current) {
+                    if (isMuted) playerRef.current.mute();
+                    else playerRef.current.unMute();
+                }
+            }, [isMuted, isReady]);
+
+            return <div ref={containerRef} className="w-full h-full"></div>;
+        };
+
+
+        // ==========================================
+        //  메인 앱 컴포넌트
+        // ==========================================
+        const App = () => {
+            const [playlist, setPlaylist] = useState([]);
+            const [inputUrl, setInputUrl] = useState('');
+            const [bulkInput, setBulkInput] = useState('');
+            const [showBulkAdd, setShowBulkAdd] = useState(false);
+            
+            const [currentIndex, setCurrentIndex] = useState(0);
+            const [isPlaying, setIsPlaying] = useState(true);
+            const [isShuffle, setIsShuffle] = useState(false);
+            const [isMuted, setIsMuted] = useState(true);
+            
+            const [showControls, setShowControls] = useState(true);
+            const [errorMessage, setErrorMessage] = useState('');
+            const [currentTime, setCurrentTime] = useState(new Date());
+
+            const controlsTimeoutRef = useRef(null);
+            const storageKey = 'win_signage_playlist_v6';
+
+            useEffect(() => {
+                try {
+                    const saved = localStorage.getItem(storageKey);
+                    if (saved) {
+                        const parsed = JSON.parse(saved);
+                        if(parsed.length > 0) setPlaylist(parsed);
+                    }
+                } catch (e) { console.error("데이터 로드 오류:", e); }
+                
+                const timer = setInterval(() => setCurrentTime(new Date()), 1000);
+                return () => clearInterval(timer);
+            }, []);
+
+            useEffect(() => {
+                localStorage.setItem(storageKey, JSON.stringify(playlist));
+            }, [playlist]);
+
+            const extractVideoId = (url) => {
+                const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
+                const match = url.trim().match(regExp);
+                return (match && match[2].length === 11) ? match[2] : null;
+            };
+
+            const addVideo = () => {
+                const videoId = extractVideoId(inputUrl);
+                if (videoId) {
+                    const newPlaylist = [...playlist, { id: Date.now(), videoId }];
+                    setPlaylist(newPlaylist);
+                    setInputUrl('');
+                    if(newPlaylist.length === 1) {
+                        setCurrentIndex(0);
+                        setIsPlaying(true);
+                    }
+                } else {
+                    setErrorMessage("올바른 유튜브 링크가 아닙니다.");
+                    setTimeout(() => setErrorMessage(''), 3000);
+                }
+            };
+
+            const handleBulkAdd = () => {
+                const urls = bulkInput.split('\n');
+                const newVideos = [];
+                urls.forEach(url => {
+                    const videoId = extractVideoId(url);
+                    if (videoId) newVideos.push({ id: Date.now() + Math.random(), videoId });
+                });
+
+                if (newVideos.length > 0) {
+                    const updatedPlaylist = [...playlist, ...newVideos];
+                    setPlaylist(updatedPlaylist);
+                    setBulkInput('');
+                    setShowBulkAdd(false);
+                    if(playlist.length === 0) {
+                        setCurrentIndex(0);
+                        setIsPlaying(true);
+                    }
+                } else {
+                    setErrorMessage("추가할 수 있는 링크가 없습니다.");
+                    setTimeout(() => setErrorMessage(''), 3000);
+                }
+            };
+
+            const removeVideo = (id) => {
+                const newPlaylist = playlist.filter(v => v.id !== id);
+                setPlaylist(newPlaylist);
+                if (newPlaylist.length === 0) {
+                    setIsPlaying(false);
+                } else if (currentIndex >= newPlaylist.length) {
+                    setCurrentIndex(0);
+                }
+            };
+
+            const handleNext = () => {
+                if (playlist.length <= 1) {
+                    setCurrentIndex(0);
+                    return;
+                }
+                const nextIndex = isShuffle 
+                    ? Math.floor(Math.random() * playlist.length) 
+                    : (currentIndex + 1) % playlist.length;
+                setCurrentIndex(nextIndex);
+                setIsPlaying(true);
+            };
+
+            const handleError = (errorCode) => {
+                console.warn("Player Error Code:", errorCode);
+                
+                if (errorCode === 150 || errorCode === 101 || errorCode === 153) {
+                    setErrorMessage("저작권(BGM 등) 문제로 외부 재생이 막힌 영상입니다. 스킵됩니다.");
+                } else {
+                    setErrorMessage(`재생할 수 없는 영상입니다 (오류코드: ${errorCode}). 자동 스킵됩니다.`);
+                }
+                setTimeout(() => setErrorMessage(''), 4000);
+
+                setPlaylist(prev => {
+                    const newList = prev.filter((_, i) => i !== currentIndex);
+                    if (newList.length === 0) {
+                        setIsPlaying(false);
+                    }
+                    return newList;
+                });
+                
+                setCurrentIndex(prev => {
+                    if (playlist.length <= 1) return 0;
+                    return prev >= playlist.length - 1 ? 0 : prev;
+                });
+            };
+
+            const toggleFullscreen = () => {
+                try {
+                    if (!document.fullscreenElement) {
+                        const promise = document.documentElement.requestFullscreen();
+                        if (promise !== undefined) {
+                            promise.catch((e) => {
+                                console.warn("Fullscreen error:", e);
+                            });
+                        }
+                    } else if (document.exitFullscreen) {
+                        document.exitFullscreen();
+                    }
+                } catch (e) {
+                    console.warn(e);
+                }
+            };
+
+            // 💡 단축키 (Enter) 지원 로직
+            useEffect(() => {
+                const handleKeyDown = (e) => {
+                    // 입력창(input, textarea)에 포커스가 있을 때는 엔터키 기능(전체화면)을 막아줌
+                    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
+                        return;
+                    }
+                    
+                    if (e.key === 'Enter') {
+                        e.preventDefault();
+                        toggleFullscreen();
+                    }
+                };
+
+                window.addEventListener('keydown', handleKeyDown);
+                return () => window.removeEventListener('keydown', handleKeyDown);
+            }, []);
+
+            const handleMouseMove = () => {
+                setShowControls(true);
+                if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
+                controlsTimeoutRef.current = setTimeout(() => {
+                    if (isPlaying) setShowControls(false);
+                }, 4000); // 4초 후 UI 자동 숨김
+            };
+
+            const currentVideoId = playlist.length > 0 && playlist[currentIndex] 
+                ? playlist[currentIndex].videoId 
+                : null;
+
+            return (
+                <div className="h-screen w-screen bg-black text-white font-sans overflow-hidden flex flex-col select-none relative" onMouseMove={handleMouseMove}>
+                    
+                    {/* 상단 타이틀 바 (마우스를 올리면 나타나고 가만히 두면 사라지는 오버레이 구조) */}
+                    <div className={`absolute top-0 left-0 right-0 h-10 bg-[#1e1e1e]/80 backdrop-blur-md flex justify-between items-center px-4 border-b border-white/10 z-[60] transition-transform duration-500 ${showControls ? 'translate-y-0' : '-translate-y-full'}`}>
+                        <div className="flex items-center gap-2">
+                            <i className="fas fa-video text-red-500 text-xs"></i>
+                            <span className="text-[11px] font-bold text-neutral-300 uppercase tracking-tight">Easy Signage Player</span>
+                        </div>
+                        <div className="flex items-center gap-3 text-neutral-400 text-xs">
+                            <span className="bg-white/10 px-2 py-1 rounded">단축키: Enter (전체화면)</span>
+                            <div className="flex gap-1 ml-2">
+                                <div className="w-8 h-8 hover:bg-white/10 rounded flex items-center justify-center transition-colors cursor-pointer"><i className="fas fa-window-minimize text-[10px]"></i></div>
+                                <div onClick={toggleFullscreen} className="w-8 h-8 hover:bg-white/10 rounded flex items-center justify-center transition-colors cursor-pointer"><i className="far fa-square text-[10px]"></i></div>
+                                <div className="w-8 h-8 hover:bg-red-600 rounded flex items-center justify-center transition-colors hover:text-white cursor-pointer"><i className="fas fa-times text-[12px]"></i></div>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* 메인 영상 플레이어 영역 (무조건 화면 전체 100% 차지) */}
+                    <main className="absolute inset-0 bg-black overflow-hidden z-0">
+                        
+                        <div className="player-wrapper">
+                            {currentVideoId && (
+                                <YouTubePlayer 
+                                    videoId={currentVideoId}
+                                    isPlaying={isPlaying}
+                                    isMuted={isMuted}
+                                    onEnded={handleNext}
+                                    onError={handleError}
+                                />
+                            )}
+                        </div>
+                        
+                        {/* 영상이 없을 때 표시되는 대기 화면 */}
+                        {playlist.length === 0 && (
+                            <div className="absolute inset-0 flex flex-col items-center justify-center text-neutral-700 bg-black z-10">
+                                <i className="fab fa-youtube text-7xl mb-6 opacity-30 text-red-600"></i>
+                                <p className="text-xl font-light text-neutral-400">우측 패널에서 홍보 영상 링크를 추가해 주세요</p>
+                                <p className="text-sm mt-3 text-neutral-600">마우스를 움직이면 관리 메뉴가 나타납니다.</p>
+                            </div>
+                        )}
+
+                        {/* 에러 알림 토스트 */}
+                        {errorMessage && (
+                            <div className="absolute top-16 left-1/2 -translate-x-1/2 z-[100] bg-red-600/90 backdrop-blur-sm px-6 py-3 rounded-full flex items-center gap-2 shadow-2xl border border-white/20 animate-bounce">
+                                <i className="fas fa-exclamation-circle"></i>
+                                <span className="text-sm font-bold">{errorMessage}</span>
+                            </div>
+                        )}
+
+                        {/* 하단 컨트롤 바 (HUD) - 오버레이 플로팅 */}
+                        <div className={`absolute bottom-10 left-1/2 -translate-x-1/2 transition-all duration-700 z-50 ${showControls ? 'translate-y-0 opacity-100' : 'translate-y-20 opacity-0'}`}>
+                            <div className="bg-[#1a1a1a]/80 backdrop-blur-xl border border-white/10 rounded-[2.5rem] p-4 flex items-center gap-6 shadow-2xl">
+                                <div className="flex items-center gap-3">
+                                    <button onClick={() => setIsShuffle(!isShuffle)} className={`w-12 h-12 flex items-center justify-center rounded-2xl transition-all ${isShuffle ? 'bg-red-600 text-white shadow-lg shadow-red-600/30' : 'bg-white/5 text-neutral-300 hover:bg-white/20 hover:text-white'}`} title="랜덤 재생">
+                                        <i className="fas fa-random"></i>
+                                    </button>
+                                    <button onClick={() => setIsPlaying(!isPlaying)} className="w-16 h-16 bg-white text-black rounded-3xl flex items-center justify-center hover:scale-105 transition-all active:scale-95 shadow-xl text-2xl">
+                                        {isPlaying ? <i className="fas fa-pause"></i> : <i className="fas fa-play ml-1"></i>}
+                                    </button>
+                                    <button onClick={handleNext} className="w-12 h-12 flex items-center justify-center bg-white/5 rounded-2xl hover:bg-white/20 text-neutral-300 hover:text-white transition-all shadow-lg" title="다음 영상">
+                                        <i className="fas fa-step-forward"></i>
+                                    </button>
+                                </div>
+
+                                <div className="h-10 w-px bg-white/20"></div>
+
+                                <div className="flex items-center gap-3">
+                                    <button onClick={() => setIsMuted(!isMuted)} className="w-12 h-12 flex items-center justify-center bg-white/5 rounded-2xl hover:bg-white/20 text-neutral-300 hover:text-white transition-all">
+                                        {isMuted ? <i className="fas fa-volume-mute"></i> : <i className="fas fa-volume-up"></i>}
+                                    </button>
+                                    <button onClick={toggleFullscreen} className="w-12 h-12 flex items-center justify-center bg-white/5 rounded-2xl hover:bg-white/20 text-neutral-300 hover:text-white transition-all" title="전체화면 (Enter)">
+                                        <i className="fas fa-expand"></i>
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </main>
+
+                    {/* 우측 관리자 패널 (영상을 덮는 오버레이 형식으로 변경) */}
+                    <aside className={`absolute right-0 top-0 bottom-0 w-[400px] bg-[#101010]/95 backdrop-blur-2xl border-l border-white/10 flex flex-col transition-transform duration-500 z-[70] shadow-2xl ${showControls ? 'translate-x-0' : 'translate-x-full'}`}>
+                        <div className="p-8 border-b border-white/10 bg-transparent mt-10">
+                            <div className="flex items-center justify-between mb-8">
+                                <div className="flex items-center gap-4">
+                                    <div className="w-10 h-10 bg-red-600 rounded-xl flex items-center justify-center shadow-lg shadow-red-600/30">
+                                        <i className="fas fa-layer-group text-white"></i>
+                                    </div>
+                                    <div>
+                                        <h3 className="text-lg font-bold tracking-tight">재생 목록</h3>
+                                        <p className="text-[10px] text-neutral-400 font-bold uppercase tracking-widest">Signage Asset</p>
+                                    </div>
+                                </div>
+                                <button onClick={() => setShowBulkAdd(!showBulkAdd)} className="text-[10px] font-bold bg-white/10 hover:bg-white/20 px-3 py-2 rounded-lg text-white transition-colors uppercase">
+                                    일괄 추가
+                                </button>
+                            </div>
+
+                            {showBulkAdd ? (
+                                <div className="space-y-4">
+                                    <textarea 
+                                        value={bulkInput}
+                                        onChange={(e) => setBulkInput(e.target.value)}
+                                        placeholder="유튜브 주소들을 줄바꿈으로 입력하세요... (여러 개 가능)"
+                                        className="w-full h-40 bg-black/60 border border-white/20 rounded-2xl px-5 py-4 text-xs focus:border-red-500 outline-none transition-all placeholder:text-neutral-600 resize-none custom-scrollbar text-white"
+                                    ></textarea>
+                                    <div className="flex gap-2">
+                                        <button onClick={handleBulkAdd} className="flex-1 bg-red-600 hover:bg-red-700 py-3 rounded-xl text-xs font-bold transition-all shadow-lg shadow-red-600/30 text-white">목록에 추가</button>
+                                        <button onClick={() => setShowBulkAdd(false)} className="px-5 py-3 bg-white/10 hover:bg-white/20 rounded-xl text-xs font-bold text-white transition-all">취소</button>
+                                    </div>
+                                </div>
+                            ) : (
+                                <div className="flex gap-2">
+                                    <input 
+                                        type="text" 
+                                        value={inputUrl}
+                                        onChange={(e) => setInputUrl(e.target.value)}
+                                        onKeyDown={(e) => e.key === 'Enter' && addVideo()}
+                                        placeholder="유튜브 영상 링크 붙여넣기..."
+                                        className="flex-1 bg-black/60 border border-white/20 rounded-xl px-5 py-3 text-xs focus:border-red-500 outline-none transition-all placeholder:text-neutral-600 text-white"
+                                    />
+                                    <button onClick={addVideo} className="bg-red-600 hover:bg-red-700 w-12 rounded-xl flex items-center justify-center transition-all active:scale-95 shadow-lg shadow-red-600/30 text-white">
+                                        <i className="fas fa-plus"></i>
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+
+                        {/* 리스트 영역 */}
+                        <div className="flex-1 overflow-y-auto p-6 custom-scrollbar bg-transparent">
+                            <div className="space-y-3">
+                                {playlist.length === 0 && (
+                                    <div className="text-center py-24 flex flex-col items-center gap-5 opacity-40">
+                                        <i className="fas fa-list text-5xl text-neutral-500"></i>
+                                        <p className="text-neutral-400 text-xs font-medium">등록된 영상이 없습니다</p>
+                                    </div>
+                                )}
+                                {playlist.map((video, index) => (
+                                    <div key={video.id} className={`group p-4 rounded-2xl flex items-center gap-5 transition-all cursor-pointer ${currentIndex === index ? 'bg-red-600/30 border border-red-500/50 shadow-lg shadow-red-900/20' : 'bg-black/40 border border-white/5 hover:bg-white/10'}`} onClick={() => {setCurrentIndex(index); setIsPlaying(true);}}>
+                                        <div className="relative w-24 h-14 rounded-xl overflow-hidden flex-shrink-0 shadow-lg border border-white/10">
+                                            <img src={`https://img.youtube.com/vi/${video.videoId}/mqdefault.jpg`} className="w-full h-full object-cover" alt="썸네일" />
+                                            {currentIndex === index && (
+                                                <div className="absolute inset-0 bg-red-600/60 flex items-center justify-center backdrop-blur-[1px]">
+                                                    <div className="w-2 h-2 bg-white rounded-full animate-ping"></div>
+                                                </div>
+                                            )}
+                                        </div>
+                                        <div className="flex-1 overflow-hidden">
+                                            <p className="text-[10px] text-neutral-400 font-bold mb-1 uppercase tracking-widest">Video {String(index + 1).padStart(2, '0')}</p>
+                                            <p className="text-xs font-bold truncate text-white uppercase tracking-tight">ID: {video.videoId}</p>
+                                        </div>
+                                        <button onClick={(e) => { e.stopPropagation(); removeVideo(video.id); }} className="opacity-0 group-hover:opacity-100 text-neutral-500 hover:text-red-500 transition-all p-2">
+                                            <i className="fas fa-trash"></i>
+                                        </button>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+
+                        {/* 시스템 상태 하단 바 */}
+                        <div className="p-8 bg-[#0a0a0a]/80 border-t border-white/10 text-[10px] font-bold text-neutral-500 flex flex-col gap-4">
+                            <div className="flex justify-between items-center bg-black/50 p-3 rounded-xl border border-white/5">
+                                <span className="flex items-center gap-2"><i className="fas fa-clock text-blue-500"></i> LOCAL TIME</span>
+                                <span className="text-neutral-300 font-mono tracking-tighter">{currentTime.toLocaleTimeString()}</span>
+                            </div>
+                            <div className="flex justify-between items-center bg-black/50 p-3 rounded-xl border border-white/5">
+                                <span className="flex items-center gap-2"><i className="fas fa-check-circle text-green-500"></i> SYSTEM</span>
+                                <span className="text-green-500">READY TO PLAY</span>
+                            </div>
+                        </div>
+                    </aside>
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+    </script>
+</body>
+</html>
