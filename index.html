@@ -159,12 +159,16 @@
             const [isShuffle, setIsShuffle] = useState(false);
             const [isMuted, setIsMuted] = useState(true);
             
-            // 💡 신규 상태 (화면 맞춤, 보안)
-            const [isFitScreen, setIsFitScreen] = useState(true); // 기본적으로 화면을 꽉 채움
-            const [isLocked, setIsLocked] = useState(true); // 기본적으로 패널 잠금 상태
+            // 💡 화면 맞춤, 보안 상태 관리
+            const [isFitScreen, setIsFitScreen] = useState(true);
+            const [isLocked, setIsLocked] = useState(true); 
             const [showPinModal, setShowPinModal] = useState(false);
             const [enteredPin, setEnteredPin] = useState('');
-            const savedPinCode = "0000"; // 비밀번호 초기값 고정
+            
+            // 💡 비밀번호 변경 로직을 위한 상태 변수
+            const [savedPin, setSavedPin] = useState("0000"); // 초기 비밀번호
+            const [pinMode, setPinMode] = useState("unlock"); // "unlock", "check_current", "enter_new", "confirm_new"
+            const [tempPin, setTempPin] = useState("");
             
             const [showControls, setShowControls] = useState(true);
             const [errorMessage, setErrorMessage] = useState('');
@@ -172,14 +176,20 @@
 
             const controlsTimeoutRef = useRef(null);
             const storageKey = 'win_signage_playlist_v8';
+            const PIN_STORAGE_KEY = 'win_signage_pin_v1';
 
-            // 데이터 로드
+            // 데이터 및 커스텀 비밀번호 로드
             useEffect(() => {
                 try {
                     const saved = localStorage.getItem(storageKey);
                     if (saved) {
                         const parsed = JSON.parse(saved);
                         if(parsed.length > 0) setPlaylist(parsed);
+                    }
+                    
+                    const savedPinCode = localStorage.getItem(PIN_STORAGE_KEY);
+                    if (savedPinCode) {
+                        setSavedPin(savedPinCode);
                     }
                 } catch (e) { console.error("데이터 로드 오류:", e); }
                 
@@ -237,11 +247,30 @@
                 }
             };
 
-            // 💡 플레이리스트 내보내기 (Export)
+            // 💡 플레이리스트 내보내기 (Export & 자동 클립보드 복사 연동)
             const exportPlaylist = () => {
+                if (playlist.length === 0) {
+                    setErrorMessage("추출할 영상 목록이 없습니다.");
+                    setTimeout(() => setErrorMessage(''), 3000);
+                    return;
+                }
+                
                 const urlList = playlist.map(v => `https://www.youtube.com/watch?v=${v.videoId}`).join('\n');
-                setBulkInput(urlList);
-                setErrorMessage("현재 재생 목록이 텍스트로 추출되었습니다. 복사하여 저장하세요.");
+                setBulkInput(urlList); // 텍스트창에 표시
+                
+                // 클립보드에 강제 복사 시도 (브라우저 호환성 및 iFrame 보안 우회)
+                const textArea = document.createElement("textarea");
+                textArea.value = urlList;
+                document.body.appendChild(textArea);
+                textArea.select();
+                try {
+                    document.execCommand('copy');
+                    setErrorMessage("현재 목록이 텍스트창에 추출되었으며, 클립보드(복사하기)에도 자동 저장되었습니다.");
+                } catch (err) {
+                    setErrorMessage("현재 재생 목록이 텍스트로 추출되었습니다. 직접 드래그하여 복사해 주세요.");
+                }
+                document.body.removeChild(textArea);
+                
                 setTimeout(() => setErrorMessage(''), 4000);
             };
 
@@ -320,29 +349,66 @@
                 }, 4000); 
             };
 
-            // 💡 키패드 입력 처리
+            // 💡 키패드 입력 처리 (잠금 해제 및 비밀번호 변경 다중 처리)
             const handlePinInput = (num) => {
                 if (enteredPin.length < 4) {
                     const newPin = enteredPin + num;
                     setEnteredPin(newPin);
+                    
                     if (newPin.length === 4) {
-                        if (newPin === savedPinCode) {
-                            setIsLocked(false);
-                            setShowPinModal(false);
-                            setEnteredPin('');
-                            setErrorMessage("보안 잠금이 해제되었습니다.");
+                        // 시각적 피드백을 위해 0.1초 딜레이 후 로직 처리
+                        setTimeout(() => {
+                            if (pinMode === "unlock") {
+                                if (newPin === savedPin) {
+                                    setIsLocked(false);
+                                    setShowPinModal(false);
+                                    setErrorMessage("보안 잠금이 해제되었습니다.");
+                                } else {
+                                    setErrorMessage("비밀번호가 일치하지 않습니다.");
+                                }
+                                setEnteredPin('');
+                            } 
+                            else if (pinMode === "check_current") {
+                                if (newPin === savedPin) {
+                                    setPinMode("enter_new");
+                                    setErrorMessage("인증 성공. 새로운 비밀번호를 입력하세요.");
+                                } else {
+                                    setErrorMessage("현재 비밀번호가 틀렸습니다.");
+                                    setPinMode("unlock"); // 틀리면 다시 잠금해제 모드로 튕겨냄
+                                    setShowPinModal(false);
+                                }
+                                setEnteredPin('');
+                            } 
+                            else if (pinMode === "enter_new") {
+                                setTempPin(newPin);
+                                setPinMode("confirm_new");
+                                setErrorMessage("새 비밀번호를 한 번 더 입력하세요.");
+                                setEnteredPin('');
+                            } 
+                            else if (pinMode === "confirm_new") {
+                                if (newPin === tempPin) {
+                                    setSavedPin(newPin);
+                                    localStorage.setItem(PIN_STORAGE_KEY, newPin);
+                                    setShowPinModal(false);
+                                    setPinMode("unlock"); // 초기화
+                                    setErrorMessage("비밀번호가 성공적으로 변경되었습니다.");
+                                } else {
+                                    setErrorMessage("비밀번호가 서로 다릅니다. 다시 설정하세요.");
+                                    setPinMode("enter_new");
+                                }
+                                setEnteredPin('');
+                                setTempPin('');
+                            }
                             setTimeout(() => setErrorMessage(''), 3000);
-                        } else {
-                            setErrorMessage("비밀번호가 일치하지 않습니다.");
-                            setTimeout(() => setErrorMessage(''), 3000);
-                            setEnteredPin(''); // 초기화
-                        }
+                        }, 150);
                     }
                 }
             };
 
+            // 일반 잠금 전환 버튼 로직
             const toggleLock = () => {
                 if (isLocked) {
+                    setPinMode("unlock");
                     setShowPinModal(true);
                 } else {
                     setIsLocked(true);
@@ -351,6 +417,29 @@
                     setTimeout(() => setErrorMessage(''), 3000);
                 }
             };
+
+            // 💡 모달창 동적 텍스트 생성
+            let modalTitle = "관리자 보안 인증";
+            let modalDesc = "설정 및 링크 관리를 위해 4자리 비밀번호를 입력하세요.\n(초기 비밀번호: 0000)";
+            let modalIcon = "fa-lock text-red-500";
+            let modalBg = "bg-red-600/20";
+            
+            if (pinMode === "check_current") {
+                modalTitle = "비밀번호 변경 (1/3)";
+                modalDesc = "현재 설정된 4자리 비밀번호를 입력하세요.";
+                modalIcon = "fa-key text-yellow-500";
+                modalBg = "bg-yellow-600/20";
+            } else if (pinMode === "enter_new") {
+                modalTitle = "비밀번호 변경 (2/3)";
+                modalDesc = "새롭게 사용할 4자리 비밀번호를 입력하세요.";
+                modalIcon = "fa-keyboard text-blue-500";
+                modalBg = "bg-blue-600/20";
+            } else if (pinMode === "confirm_new") {
+                modalTitle = "비밀번호 변경 (3/3)";
+                modalDesc = "방금 입력한 새 비밀번호를 한 번 더 입력하세요.";
+                modalIcon = "fa-check-double text-green-500";
+                modalBg = "bg-green-600/20";
+            }
 
             const currentVideoId = playlist.length > 0 && playlist[currentIndex] ? playlist[currentIndex].videoId : null;
 
@@ -392,7 +481,7 @@
                         <div className={`absolute bottom-10 left-1/2 -translate-x-1/2 transition-all duration-300 z-50 ${showControls && !showPinModal ? 'translate-y-0 opacity-100' : 'translate-y-20 opacity-0 pointer-events-none'}`}>
                             <div className="bg-[#1a1a1a] border border-white/10 rounded-[2.5rem] p-4 flex items-center gap-6 shadow-2xl">
                                 
-                                {/* 💡 보안 버튼 (Lock/Unlock) */}
+                                {/* 보안 버튼 (Lock/Unlock) */}
                                 <button onClick={toggleLock} className={`w-14 h-14 flex items-center justify-center rounded-2xl transition-all ${isLocked ? 'bg-red-600/20 text-red-500 hover:bg-red-600/40' : 'bg-green-600/20 text-green-500 hover:bg-green-600/40'}`} title="설정 패널 잠금/해제">
                                     <i className={`fas ${isLocked ? 'fa-lock' : 'fa-unlock'}`}></i>
                                 </button>
@@ -418,7 +507,7 @@
                                         {isMuted ? <i className="fas fa-volume-mute"></i> : <i className="fas fa-volume-up"></i>}
                                     </button>
                                     
-                                    {/* 💡 화면 맞춤 버튼 */}
+                                    {/* 화면 맞춤 버튼 */}
                                     <button onClick={() => setIsFitScreen(!isFitScreen)} className={`w-12 h-12 flex items-center justify-center rounded-2xl transition-all ${isFitScreen ? 'bg-blue-600 text-white' : 'bg-white/5 text-neutral-300 hover:bg-white/20'}`} title="화면 꽉 채우기 (블랙바 제거)">
                                         <i className={`fas ${isFitScreen ? 'fa-crop-alt' : 'fa-compress'}`}></i>
                                     </button>
@@ -427,15 +516,15 @@
                         </div>
                     </main>
 
-                    {/* 💡 보안 키패드 모달 (팝업) */}
+                    {/* 💡 개선된 보안 키패드 모달 (팝업) */}
                     {showPinModal && (
                         <div className="absolute inset-0 z-[200] bg-black/80 backdrop-blur-sm flex items-center justify-center">
                             <div className="bg-[#1a1a1a] p-8 rounded-[2rem] border border-white/10 shadow-2xl flex flex-col items-center">
-                                <div className="w-16 h-16 bg-red-600/20 rounded-full flex items-center justify-center mb-4">
-                                    <i className="fas fa-lock text-red-500 text-2xl"></i>
+                                <div className={`w-16 h-16 ${modalBg} rounded-full flex items-center justify-center mb-4 transition-colors duration-300`}>
+                                    <i className={`fas ${modalIcon} text-2xl`}></i>
                                 </div>
-                                <h2 className="text-xl font-bold mb-2">관리자 보안 인증</h2>
-                                <p className="text-xs text-neutral-400 mb-8 text-center leading-relaxed">설정 및 링크 관리를 위해 4자리 비밀번호를 입력하세요.<br/>(초기 비밀번호: 0000)</p>
+                                <h2 className="text-xl font-bold mb-2">{modalTitle}</h2>
+                                <p className="text-xs text-neutral-400 mb-8 text-center leading-relaxed whitespace-pre-line">{modalDesc}</p>
                                 
                                 <div className="flex gap-4 mb-8">
                                     {[0,1,2,3].map(i => (
@@ -449,7 +538,7 @@
                                     ))}
                                     <button onClick={() => setEnteredPin('')} className="w-20 h-20 bg-white/5 rounded-2xl text-sm font-bold text-red-400 hover:bg-white/10 active:scale-95 transition-all">CLEAR</button>
                                     <button onClick={() => handlePinInput('0')} className="w-20 h-20 bg-white/5 rounded-2xl text-2xl font-bold hover:bg-white/10 active:scale-95 transition-all text-neutral-200">0</button>
-                                    <button onClick={() => {setShowPinModal(false); setEnteredPin('');}} className="w-20 h-20 bg-white/5 rounded-2xl text-sm font-bold text-neutral-400 hover:bg-white/10 active:scale-95 transition-all">닫기</button>
+                                    <button onClick={() => {setShowPinModal(false); setEnteredPin(''); setPinMode("unlock");}} className="w-20 h-20 bg-white/5 rounded-2xl text-sm font-bold text-neutral-400 hover:bg-white/10 active:scale-95 transition-all">취소/닫기</button>
                                 </div>
                             </div>
                         </div>
@@ -540,11 +629,11 @@
                             </div>
                         </div>
 
-                        {/* 시스템 상태 하단 바 */}
+                        {/* 시스템 상태 하단 바 (잠금 및 비밀번호 변경) */}
                         <div className="p-8 bg-[#0a0a0a] border-t border-white/10 text-[10px] font-bold text-neutral-500 flex flex-col gap-4">
-                            <div className="flex justify-between items-center bg-black/50 p-3 rounded-xl border border-white/5">
-                                <span className="flex items-center gap-2"><i className="fas fa-clock text-blue-500"></i> LOCAL TIME</span>
-                                <span className="text-neutral-300 font-mono tracking-tighter">{currentTime.toLocaleTimeString()}</span>
+                            <div className="flex justify-between items-center bg-black/50 p-3 rounded-xl border border-white/5 cursor-pointer hover:bg-white/5 transition-colors" onClick={() => { setPinMode("check_current"); setShowPinModal(true); }} title="비밀번호 재설정">
+                                <span className="flex items-center gap-2"><i className="fas fa-key text-yellow-500"></i> PASSWORD</span>
+                                <span className="text-yellow-500 underline">비밀번호 변경</span>
                             </div>
                             <div className="flex justify-between items-center bg-black/50 p-3 rounded-xl border border-white/5 cursor-pointer hover:bg-white/5 transition-colors" onClick={toggleLock} title="다시 잠그기">
                                 <span className="flex items-center gap-2"><i className="fas fa-shield-alt text-green-500"></i> SECURITY</span>
