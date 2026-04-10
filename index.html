@@ -275,10 +275,10 @@
                 }
             };
 
-            // 💡 단축키 (Enter) 지원 로직
+            // 💡 단축키 (Enter) 지원 로직 업데이트: 엔터 누르면 메뉴도 즉시 숨김
             useEffect(() => {
                 const handleKeyDown = (e) => {
-                    // 입력창(input, textarea)에 포커스가 있을 때는 엔터키 기능(전체화면)을 막아줌
+                    // 입력창에 포커스가 있을 때는 엔터키 기능(전체화면)을 막아줌
                     if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
                         return;
                     }
@@ -286,6 +286,7 @@
                     if (e.key === 'Enter') {
                         e.preventDefault();
                         toggleFullscreen();
+                        setShowControls(false); // 엔터 시 즉시 패널 숨김 처리
                     }
                 };
 
@@ -308,22 +309,6 @@
             return (
                 <div className="h-screen w-screen bg-black text-white font-sans overflow-hidden flex flex-col select-none relative" onMouseMove={handleMouseMove}>
                     
-                    {/* 상단 타이틀 바 (마우스를 올리면 나타나고 가만히 두면 사라지는 오버레이 구조) */}
-                    <div className={`absolute top-0 left-0 right-0 h-10 bg-[#1e1e1e]/80 backdrop-blur-md flex justify-between items-center px-4 border-b border-white/10 z-[60] transition-transform duration-500 ${showControls ? 'translate-y-0' : '-translate-y-full'}`}>
-                        <div className="flex items-center gap-2">
-                            <i className="fas fa-video text-red-500 text-xs"></i>
-                            <span className="text-[11px] font-bold text-neutral-300 uppercase tracking-tight">Easy Signage Player</span>
-                        </div>
-                        <div className="flex items-center gap-3 text-neutral-400 text-xs">
-                            <span className="bg-white/10 px-2 py-1 rounded">단축키: Enter (전체화면)</span>
-                            <div className="flex gap-1 ml-2">
-                                <div className="w-8 h-8 hover:bg-white/10 rounded flex items-center justify-center transition-colors cursor-pointer"><i className="fas fa-window-minimize text-[10px]"></i></div>
-                                <div onClick={toggleFullscreen} className="w-8 h-8 hover:bg-white/10 rounded flex items-center justify-center transition-colors cursor-pointer"><i className="far fa-square text-[10px]"></i></div>
-                                <div className="w-8 h-8 hover:bg-red-600 rounded flex items-center justify-center transition-colors hover:text-white cursor-pointer"><i className="fas fa-times text-[12px]"></i></div>
-                            </div>
-                        </div>
-                    </div>
-
                     {/* 메인 영상 플레이어 영역 (무조건 화면 전체 100% 차지) */}
                     <main className="absolute inset-0 bg-black overflow-hidden z-0">
                         
@@ -350,15 +335,15 @@
 
                         {/* 에러 알림 토스트 */}
                         {errorMessage && (
-                            <div className="absolute top-16 left-1/2 -translate-x-1/2 z-[100] bg-red-600/90 backdrop-blur-sm px-6 py-3 rounded-full flex items-center gap-2 shadow-2xl border border-white/20 animate-bounce">
+                            <div className="absolute top-10 left-1/2 -translate-x-1/2 z-[100] bg-red-600/90 px-6 py-3 rounded-full flex items-center gap-2 shadow-2xl border border-white/20 animate-bounce">
                                 <i className="fas fa-exclamation-circle"></i>
                                 <span className="text-sm font-bold">{errorMessage}</span>
                             </div>
                         )}
 
-                        {/* 하단 컨트롤 바 (HUD) - 오버레이 플로팅 */}
-                        <div className={`absolute bottom-10 left-1/2 -translate-x-1/2 transition-all duration-700 z-50 ${showControls ? 'translate-y-0 opacity-100' : 'translate-y-20 opacity-0'}`}>
-                            <div className="bg-[#1a1a1a]/80 backdrop-blur-xl border border-white/10 rounded-[2.5rem] p-4 flex items-center gap-6 shadow-2xl">
+                        {/* 하단 컨트롤 바 (HUD) - 오버레이 플로팅 및 성능 최적화 */}
+                        <div className={`absolute bottom-10 left-1/2 -translate-x-1/2 transition-all duration-300 z-50 ${showControls ? 'translate-y-0 opacity-100' : 'translate-y-20 opacity-0'}`}>
+                            <div className="bg-[#1a1a1a] border border-white/10 rounded-[2.5rem] p-4 flex items-center gap-6 shadow-2xl">
                                 <div className="flex items-center gap-3">
                                     <button onClick={() => setIsShuffle(!isShuffle)} className={`w-12 h-12 flex items-center justify-center rounded-2xl transition-all ${isShuffle ? 'bg-red-600 text-white shadow-lg shadow-red-600/30' : 'bg-white/5 text-neutral-300 hover:bg-white/20 hover:text-white'}`} title="랜덤 재생">
                                         <i className="fas fa-random"></i>
@@ -377,7 +362,7 @@
                                     <button onClick={() => setIsMuted(!isMuted)} className="w-12 h-12 flex items-center justify-center bg-white/5 rounded-2xl hover:bg-white/20 text-neutral-300 hover:text-white transition-all">
                                         {isMuted ? <i className="fas fa-volume-mute"></i> : <i className="fas fa-volume-up"></i>}
                                     </button>
-                                    <button onClick={toggleFullscreen} className="w-12 h-12 flex items-center justify-center bg-white/5 rounded-2xl hover:bg-white/20 text-neutral-300 hover:text-white transition-all" title="전체화면 (Enter)">
+                                    <button onClick={() => { toggleFullscreen(); setShowControls(false); }} className="w-12 h-12 flex items-center justify-center bg-white/5 rounded-2xl hover:bg-white/20 text-neutral-300 hover:text-white transition-all" title="전체화면 (Enter)">
                                         <i className="fas fa-expand"></i>
                                     </button>
                                 </div>
@@ -385,9 +370,9 @@
                         </div>
                     </main>
 
-                    {/* 우측 관리자 패널 (영상을 덮는 오버레이 형식으로 변경) */}
-                    <aside className={`absolute right-0 top-0 bottom-0 w-[400px] bg-[#101010]/95 backdrop-blur-2xl border-l border-white/10 flex flex-col transition-transform duration-500 z-[70] shadow-2xl ${showControls ? 'translate-x-0' : 'translate-x-full'}`}>
-                        <div className="p-8 border-b border-white/10 bg-transparent mt-10">
+                    {/* 우측 관리자 패널 (성능 최적화: 블러 제거 및 속도 향상) */}
+                    <aside className={`absolute right-0 top-0 bottom-0 w-[400px] bg-[#101010] border-l border-white/10 flex flex-col transition-transform duration-300 ease-out z-[70] shadow-2xl ${showControls ? 'translate-x-0' : 'translate-x-full'}`}>
+                        <div className="p-8 border-b border-white/10 bg-transparent">
                             <div className="flex items-center justify-between mb-8">
                                 <div className="flex items-center gap-4">
                                     <div className="w-10 h-10 bg-red-600 rounded-xl flex items-center justify-center shadow-lg shadow-red-600/30">
@@ -447,7 +432,7 @@
                                         <div className="relative w-24 h-14 rounded-xl overflow-hidden flex-shrink-0 shadow-lg border border-white/10">
                                             <img src={`https://img.youtube.com/vi/${video.videoId}/mqdefault.jpg`} className="w-full h-full object-cover" alt="썸네일" />
                                             {currentIndex === index && (
-                                                <div className="absolute inset-0 bg-red-600/60 flex items-center justify-center backdrop-blur-[1px]">
+                                                <div className="absolute inset-0 bg-red-600/60 flex items-center justify-center">
                                                     <div className="w-2 h-2 bg-white rounded-full animate-ping"></div>
                                                 </div>
                                             )}
@@ -465,14 +450,14 @@
                         </div>
 
                         {/* 시스템 상태 하단 바 */}
-                        <div className="p-8 bg-[#0a0a0a]/80 border-t border-white/10 text-[10px] font-bold text-neutral-500 flex flex-col gap-4">
+                        <div className="p-8 bg-[#0a0a0a] border-t border-white/10 text-[10px] font-bold text-neutral-500 flex flex-col gap-4">
                             <div className="flex justify-between items-center bg-black/50 p-3 rounded-xl border border-white/5">
                                 <span className="flex items-center gap-2"><i className="fas fa-clock text-blue-500"></i> LOCAL TIME</span>
                                 <span className="text-neutral-300 font-mono tracking-tighter">{currentTime.toLocaleTimeString()}</span>
                             </div>
                             <div className="flex justify-between items-center bg-black/50 p-3 rounded-xl border border-white/5">
-                                <span className="flex items-center gap-2"><i className="fas fa-check-circle text-green-500"></i> SYSTEM</span>
-                                <span className="text-green-500">READY TO PLAY</span>
+                                <span className="flex items-center gap-2"><i className="fas fa-keyboard text-neutral-400"></i> 단축키</span>
+                                <span className="text-neutral-400">Enter (전체화면)</span>
                             </div>
                         </div>
                     </aside>
