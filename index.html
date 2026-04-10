@@ -92,9 +92,11 @@
                     document.head.appendChild(tag);
                     window.onYouTubeIframeAPIReady = initPlayer;
                 } else {
+                    // API가 이미 로드되어 있으면 즉시 실행
                     initPlayer();
                 }
 
+                // 컴포넌트가 바뀔 때 기존 플레이어를 완전히 파괴 (검은화면 방지 핵심 로직)
                 return () => {
                     if (playerRef.current && playerRef.current.destroy) {
                         playerRef.current.destroy();
@@ -105,21 +107,17 @@
                 };
             }, [videoId]);
 
+            // 재생 상태 제어
             useEffect(() => {
-                if (isReady && playerRef.current && playerRef.current.loadVideoById) {
-                    playerRef.current.loadVideoById(videoId);
-                }
-            }, [videoId, isReady]);
-
-            useEffect(() => {
-                if (isReady && playerRef.current) {
+                if (isReady && playerRef.current && playerRef.current.playVideo) {
                     if (isPlaying) playerRef.current.playVideo();
                     else playerRef.current.pauseVideo();
                 }
             }, [isPlaying, isReady]);
 
+            // 음소거 상태 제어
             useEffect(() => {
-                if (isReady && playerRef.current) {
+                if (isReady && playerRef.current && playerRef.current.mute) {
                     if (isMuted) playerRef.current.mute();
                     else playerRef.current.unMute();
                 }
@@ -148,7 +146,7 @@
             const [currentTime, setCurrentTime] = useState(new Date());
 
             const controlsTimeoutRef = useRef(null);
-            const storageKey = 'win_signage_playlist_v6';
+            const storageKey = 'win_signage_playlist_v7';
 
             useEffect(() => {
                 try {
@@ -275,10 +273,9 @@
                 }
             };
 
-            // 💡 단축키 (Enter) 지원 로직 업데이트: 엔터 누르면 메뉴도 즉시 숨김
+            // 단축키 (Enter) 로직
             useEffect(() => {
                 const handleKeyDown = (e) => {
-                    // 입력창에 포커스가 있을 때는 엔터키 기능(전체화면)을 막아줌
                     if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
                         return;
                     }
@@ -286,7 +283,7 @@
                     if (e.key === 'Enter') {
                         e.preventDefault();
                         toggleFullscreen();
-                        setShowControls(false); // 엔터 시 즉시 패널 숨김 처리
+                        setShowControls(false); 
                     }
                 };
 
@@ -299,7 +296,7 @@
                 if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
                 controlsTimeoutRef.current = setTimeout(() => {
                     if (isPlaying) setShowControls(false);
-                }, 4000); // 4초 후 UI 자동 숨김
+                }, 4000); 
             };
 
             const currentVideoId = playlist.length > 0 && playlist[currentIndex] 
@@ -309,12 +306,14 @@
             return (
                 <div className="h-screen w-screen bg-black text-white font-sans overflow-hidden flex flex-col select-none relative" onMouseMove={handleMouseMove}>
                     
-                    {/* 메인 영상 플레이어 영역 (무조건 화면 전체 100% 차지) */}
+                    {/* 메인 영상 플레이어 영역 */}
                     <main className="absolute inset-0 bg-black overflow-hidden z-0">
                         
                         <div className="player-wrapper">
                             {currentVideoId && (
                                 <YouTubePlayer 
+                                    // 💡 key 값을 주어 영상이 바뀔 때마다 플레이어 자체를 강제 새로고침 (검은화면 문제 완벽 해결)
+                                    key={`player-${currentIndex}-${currentVideoId}`} 
                                     videoId={currentVideoId}
                                     isPlaying={isPlaying}
                                     isMuted={isMuted}
@@ -341,7 +340,7 @@
                             </div>
                         )}
 
-                        {/* 하단 컨트롤 바 (HUD) - 오버레이 플로팅 및 성능 최적화 */}
+                        {/* 하단 컨트롤 바 (HUD) */}
                         <div className={`absolute bottom-10 left-1/2 -translate-x-1/2 transition-all duration-300 z-50 ${showControls ? 'translate-y-0 opacity-100' : 'translate-y-20 opacity-0'}`}>
                             <div className="bg-[#1a1a1a] border border-white/10 rounded-[2.5rem] p-4 flex items-center gap-6 shadow-2xl">
                                 <div className="flex items-center gap-3">
@@ -370,7 +369,7 @@
                         </div>
                     </main>
 
-                    {/* 우측 관리자 패널 (성능 최적화: 블러 제거 및 속도 향상) */}
+                    {/* 우측 관리자 패널 */}
                     <aside className={`absolute right-0 top-0 bottom-0 w-[400px] bg-[#101010] border-l border-white/10 flex flex-col transition-transform duration-300 ease-out z-[70] shadow-2xl ${showControls ? 'translate-x-0' : 'translate-x-full'}`}>
                         <div className="p-8 border-b border-white/10 bg-transparent">
                             <div className="flex items-center justify-between mb-8">
@@ -432,7 +431,7 @@
                                         <div className="relative w-24 h-14 rounded-xl overflow-hidden flex-shrink-0 shadow-lg border border-white/10">
                                             <img src={`https://img.youtube.com/vi/${video.videoId}/mqdefault.jpg`} className="w-full h-full object-cover" alt="썸네일" />
                                             {currentIndex === index && (
-                                                <div className="absolute inset-0 bg-red-600/60 flex items-center justify-center">
+                                                <div className="absolute inset-0 bg-red-600/60 flex items-center justify-center backdrop-blur-[1px]">
                                                     <div className="w-2 h-2 bg-white rounded-full animate-ping"></div>
                                                 </div>
                                             )}
@@ -450,14 +449,14 @@
                         </div>
 
                         {/* 시스템 상태 하단 바 */}
-                        <div className="p-8 bg-[#0a0a0a] border-t border-white/10 text-[10px] font-bold text-neutral-500 flex flex-col gap-4">
+                        <div className="p-8 bg-[#0a0a0a]/80 border-t border-white/10 text-[10px] font-bold text-neutral-500 flex flex-col gap-4">
                             <div className="flex justify-between items-center bg-black/50 p-3 rounded-xl border border-white/5">
                                 <span className="flex items-center gap-2"><i className="fas fa-clock text-blue-500"></i> LOCAL TIME</span>
                                 <span className="text-neutral-300 font-mono tracking-tighter">{currentTime.toLocaleTimeString()}</span>
                             </div>
                             <div className="flex justify-between items-center bg-black/50 p-3 rounded-xl border border-white/5">
                                 <span className="flex items-center gap-2"><i className="fas fa-keyboard text-neutral-400"></i> 단축키</span>
-                                <span className="text-neutral-400">Enter (전체화면)</span>
+                                <span className="text-neutral-400">Enter (전체화면 및 패널 숨김)</span>
                             </div>
                         </div>
                     </aside>
