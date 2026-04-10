@@ -24,7 +24,23 @@
         .custom-scrollbar::-webkit-scrollbar-track { background: transparent; }
         .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 10px; }
         .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.3); }
-        .player-wrapper { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; }
+        .player-wrapper { position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; overflow: hidden; }
+        
+        /* 💡 화면 꽉 채우기용 특수 CSS */
+        .fit-screen-container {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 100vw;
+            height: 56.25vw; /* 16:9 비율 유지 */
+            min-height: 100vh;
+            min-width: 177.77vh; /* 16:9 비율 유지 */
+            transform: translate(-50%, -50%);
+        }
+        .normal-screen-container {
+            width: 100%;
+            height: 100%;
+        }
     </style>
 </head>
 <body>
@@ -36,7 +52,7 @@
         // ==========================================
         // 🚀 안정적인 자체 제작 YouTube Player 엔진
         // ==========================================
-        const YouTubePlayer = ({ videoId, isPlaying, isMuted, onEnded, onError }) => {
+        const YouTubePlayer = ({ videoId, isPlaying, isMuted, isFitScreen, onEnded, onError }) => {
             const playerRef = useRef(null);
             const containerRef = useRef(null);
             const initialized = useRef(false);
@@ -92,11 +108,9 @@
                     document.head.appendChild(tag);
                     window.onYouTubeIframeAPIReady = initPlayer;
                 } else {
-                    // API가 이미 로드되어 있으면 즉시 실행
                     initPlayer();
                 }
 
-                // 컴포넌트가 바뀔 때 기존 플레이어를 완전히 파괴 (검은화면 방지 핵심 로직)
                 return () => {
                     if (playerRef.current && playerRef.current.destroy) {
                         playerRef.current.destroy();
@@ -107,15 +121,19 @@
                 };
             }, [videoId]);
 
-            // 재생 상태 제어
             useEffect(() => {
-                if (isReady && playerRef.current && playerRef.current.playVideo) {
+                if (isReady && playerRef.current && playerRef.current.loadVideoById) {
+                    playerRef.current.loadVideoById(videoId);
+                }
+            }, [videoId, isReady]);
+
+            useEffect(() => {
+                if (isReady && playerRef.current) {
                     if (isPlaying) playerRef.current.playVideo();
                     else playerRef.current.pauseVideo();
                 }
             }, [isPlaying, isReady]);
 
-            // 음소거 상태 제어
             useEffect(() => {
                 if (isReady && playerRef.current && playerRef.current.mute) {
                     if (isMuted) playerRef.current.mute();
@@ -123,7 +141,7 @@
                 }
             }, [isMuted, isReady]);
 
-            return <div ref={containerRef} className="w-full h-full"></div>;
+            return <div ref={containerRef} className={isFitScreen ? "fit-screen-container" : "normal-screen-container"}></div>;
         };
 
 
@@ -141,13 +159,21 @@
             const [isShuffle, setIsShuffle] = useState(false);
             const [isMuted, setIsMuted] = useState(true);
             
+            // 💡 신규 상태 (화면 맞춤, 보안)
+            const [isFitScreen, setIsFitScreen] = useState(true); // 기본적으로 화면을 꽉 채움
+            const [isLocked, setIsLocked] = useState(true); // 기본적으로 패널 잠금 상태
+            const [showPinModal, setShowPinModal] = useState(false);
+            const [enteredPin, setEnteredPin] = useState('');
+            const savedPinCode = "0000"; // 비밀번호 초기값 고정
+            
             const [showControls, setShowControls] = useState(true);
             const [errorMessage, setErrorMessage] = useState('');
             const [currentTime, setCurrentTime] = useState(new Date());
 
             const controlsTimeoutRef = useRef(null);
-            const storageKey = 'win_signage_playlist_v7';
+            const storageKey = 'win_signage_playlist_v8';
 
+            // 데이터 로드
             useEffect(() => {
                 try {
                     const saved = localStorage.getItem(storageKey);
@@ -161,6 +187,7 @@
                 return () => clearInterval(timer);
             }, []);
 
+            // 플레이리스트 저장
             useEffect(() => {
                 localStorage.setItem(storageKey, JSON.stringify(playlist));
             }, [playlist]);
@@ -210,6 +237,14 @@
                 }
             };
 
+            // 💡 플레이리스트 내보내기 (Export)
+            const exportPlaylist = () => {
+                const urlList = playlist.map(v => `https://www.youtube.com/watch?v=${v.videoId}`).join('\n');
+                setBulkInput(urlList);
+                setErrorMessage("현재 재생 목록이 텍스트로 추출되었습니다. 복사하여 저장하세요.");
+                setTimeout(() => setErrorMessage(''), 4000);
+            };
+
             const removeVideo = (id) => {
                 const newPlaylist = playlist.filter(v => v.id !== id);
                 setPlaylist(newPlaylist);
@@ -233,20 +268,16 @@
             };
 
             const handleError = (errorCode) => {
-                console.warn("Player Error Code:", errorCode);
-                
                 if (errorCode === 150 || errorCode === 101 || errorCode === 153) {
-                    setErrorMessage("저작권(BGM 등) 문제로 외부 재생이 막힌 영상입니다. 스킵됩니다.");
+                    setErrorMessage("저작권(BGM 등) 문제로 재생이 막힌 영상입니다. 스킵됩니다.");
                 } else {
-                    setErrorMessage(`재생할 수 없는 영상입니다 (오류코드: ${errorCode}). 자동 스킵됩니다.`);
+                    setErrorMessage(`재생 오류 발생 (코드: ${errorCode}). 자동 스킵됩니다.`);
                 }
                 setTimeout(() => setErrorMessage(''), 4000);
 
                 setPlaylist(prev => {
                     const newList = prev.filter((_, i) => i !== currentIndex);
-                    if (newList.length === 0) {
-                        setIsPlaying(false);
-                    }
+                    if (newList.length === 0) setIsPlaying(false);
                     return newList;
                 });
                 
@@ -260,48 +291,68 @@
                 try {
                     if (!document.fullscreenElement) {
                         const promise = document.documentElement.requestFullscreen();
-                        if (promise !== undefined) {
-                            promise.catch((e) => {
-                                console.warn("Fullscreen error:", e);
-                            });
-                        }
+                        if (promise !== undefined) promise.catch(() => {});
                     } else if (document.exitFullscreen) {
                         document.exitFullscreen();
                     }
-                } catch (e) {
-                    console.warn(e);
-                }
+                } catch (e) {}
             };
 
-            // 단축키 (Enter) 로직
+            // 단축키 로직
             useEffect(() => {
                 const handleKeyDown = (e) => {
-                    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') {
-                        return;
-                    }
-                    
+                    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
                     if (e.key === 'Enter') {
                         e.preventDefault();
                         toggleFullscreen();
                         setShowControls(false); 
                     }
                 };
-
                 window.addEventListener('keydown', handleKeyDown);
                 return () => window.removeEventListener('keydown', handleKeyDown);
             }, []);
 
             const handleMouseMove = () => {
-                setShowControls(true);
+                if (!showPinModal) setShowControls(true);
                 if (controlsTimeoutRef.current) clearTimeout(controlsTimeoutRef.current);
                 controlsTimeoutRef.current = setTimeout(() => {
-                    if (isPlaying) setShowControls(false);
+                    if (isPlaying && !showPinModal) setShowControls(false);
                 }, 4000); 
             };
 
-            const currentVideoId = playlist.length > 0 && playlist[currentIndex] 
-                ? playlist[currentIndex].videoId 
-                : null;
+            // 💡 키패드 입력 처리
+            const handlePinInput = (num) => {
+                if (enteredPin.length < 4) {
+                    const newPin = enteredPin + num;
+                    setEnteredPin(newPin);
+                    if (newPin.length === 4) {
+                        if (newPin === savedPinCode) {
+                            setIsLocked(false);
+                            setShowPinModal(false);
+                            setEnteredPin('');
+                            setErrorMessage("보안 잠금이 해제되었습니다.");
+                            setTimeout(() => setErrorMessage(''), 3000);
+                        } else {
+                            setErrorMessage("비밀번호가 일치하지 않습니다.");
+                            setTimeout(() => setErrorMessage(''), 3000);
+                            setEnteredPin(''); // 초기화
+                        }
+                    }
+                }
+            };
+
+            const toggleLock = () => {
+                if (isLocked) {
+                    setShowPinModal(true);
+                } else {
+                    setIsLocked(true);
+                    setShowControls(false);
+                    setErrorMessage("패널이 잠금 처리되었습니다.");
+                    setTimeout(() => setErrorMessage(''), 3000);
+                }
+            };
+
+            const currentVideoId = playlist.length > 0 && playlist[currentIndex] ? playlist[currentIndex].videoId : null;
 
             return (
                 <div className="h-screen w-screen bg-black text-white font-sans overflow-hidden flex flex-col select-none relative" onMouseMove={handleMouseMove}>
@@ -312,27 +363,24 @@
                         <div className="player-wrapper">
                             {currentVideoId && (
                                 <YouTubePlayer 
-                                    // 💡 key 값을 주어 영상이 바뀔 때마다 플레이어 자체를 강제 새로고침 (검은화면 문제 완벽 해결)
                                     key={`player-${currentIndex}-${currentVideoId}`} 
                                     videoId={currentVideoId}
                                     isPlaying={isPlaying}
                                     isMuted={isMuted}
+                                    isFitScreen={isFitScreen}
                                     onEnded={handleNext}
                                     onError={handleError}
                                 />
                             )}
                         </div>
                         
-                        {/* 영상이 없을 때 표시되는 대기 화면 */}
                         {playlist.length === 0 && (
                             <div className="absolute inset-0 flex flex-col items-center justify-center text-neutral-700 bg-black z-10">
                                 <i className="fab fa-youtube text-7xl mb-6 opacity-30 text-red-600"></i>
-                                <p className="text-xl font-light text-neutral-400">우측 패널에서 홍보 영상 링크를 추가해 주세요</p>
-                                <p className="text-sm mt-3 text-neutral-600">마우스를 움직이면 관리 메뉴가 나타납니다.</p>
+                                <p className="text-xl font-light text-neutral-400">자물쇠 버튼을 눌러 잠금 해제 후 영상을 추가하세요</p>
                             </div>
                         )}
 
-                        {/* 에러 알림 토스트 */}
                         {errorMessage && (
                             <div className="absolute top-10 left-1/2 -translate-x-1/2 z-[100] bg-red-600/90 px-6 py-3 rounded-full flex items-center gap-2 shadow-2xl border border-white/20 animate-bounce">
                                 <i className="fas fa-exclamation-circle"></i>
@@ -341,16 +389,24 @@
                         )}
 
                         {/* 하단 컨트롤 바 (HUD) */}
-                        <div className={`absolute bottom-10 left-1/2 -translate-x-1/2 transition-all duration-300 z-50 ${showControls ? 'translate-y-0 opacity-100' : 'translate-y-20 opacity-0'}`}>
+                        <div className={`absolute bottom-10 left-1/2 -translate-x-1/2 transition-all duration-300 z-50 ${showControls && !showPinModal ? 'translate-y-0 opacity-100' : 'translate-y-20 opacity-0 pointer-events-none'}`}>
                             <div className="bg-[#1a1a1a] border border-white/10 rounded-[2.5rem] p-4 flex items-center gap-6 shadow-2xl">
+                                
+                                {/* 💡 보안 버튼 (Lock/Unlock) */}
+                                <button onClick={toggleLock} className={`w-14 h-14 flex items-center justify-center rounded-2xl transition-all ${isLocked ? 'bg-red-600/20 text-red-500 hover:bg-red-600/40' : 'bg-green-600/20 text-green-500 hover:bg-green-600/40'}`} title="설정 패널 잠금/해제">
+                                    <i className={`fas ${isLocked ? 'fa-lock' : 'fa-unlock'}`}></i>
+                                </button>
+
+                                <div className="h-10 w-px bg-white/20"></div>
+
                                 <div className="flex items-center gap-3">
-                                    <button onClick={() => setIsShuffle(!isShuffle)} className={`w-12 h-12 flex items-center justify-center rounded-2xl transition-all ${isShuffle ? 'bg-red-600 text-white shadow-lg shadow-red-600/30' : 'bg-white/5 text-neutral-300 hover:bg-white/20 hover:text-white'}`} title="랜덤 재생">
+                                    <button onClick={() => setIsShuffle(!isShuffle)} className={`w-12 h-12 flex items-center justify-center rounded-2xl transition-all ${isShuffle ? 'bg-red-600 text-white shadow-lg shadow-red-600/30' : 'bg-white/5 text-neutral-300 hover:bg-white/20'}`} title="랜덤 재생">
                                         <i className="fas fa-random"></i>
                                     </button>
                                     <button onClick={() => setIsPlaying(!isPlaying)} className="w-16 h-16 bg-white text-black rounded-3xl flex items-center justify-center hover:scale-105 transition-all active:scale-95 shadow-xl text-2xl">
                                         {isPlaying ? <i className="fas fa-pause"></i> : <i className="fas fa-play ml-1"></i>}
                                     </button>
-                                    <button onClick={handleNext} className="w-12 h-12 flex items-center justify-center bg-white/5 rounded-2xl hover:bg-white/20 text-neutral-300 hover:text-white transition-all shadow-lg" title="다음 영상">
+                                    <button onClick={handleNext} className="w-12 h-12 flex items-center justify-center bg-white/5 rounded-2xl hover:bg-white/20 text-neutral-300 transition-all shadow-lg" title="다음 영상">
                                         <i className="fas fa-step-forward"></i>
                                     </button>
                                 </div>
@@ -358,45 +414,81 @@
                                 <div className="h-10 w-px bg-white/20"></div>
 
                                 <div className="flex items-center gap-3">
-                                    <button onClick={() => setIsMuted(!isMuted)} className="w-12 h-12 flex items-center justify-center bg-white/5 rounded-2xl hover:bg-white/20 text-neutral-300 hover:text-white transition-all">
+                                    <button onClick={() => setIsMuted(!isMuted)} className="w-12 h-12 flex items-center justify-center bg-white/5 rounded-2xl hover:bg-white/20 text-neutral-300 transition-all">
                                         {isMuted ? <i className="fas fa-volume-mute"></i> : <i className="fas fa-volume-up"></i>}
                                     </button>
-                                    <button onClick={() => { toggleFullscreen(); setShowControls(false); }} className="w-12 h-12 flex items-center justify-center bg-white/5 rounded-2xl hover:bg-white/20 text-neutral-300 hover:text-white transition-all" title="전체화면 (Enter)">
-                                        <i className="fas fa-expand"></i>
+                                    
+                                    {/* 💡 화면 맞춤 버튼 */}
+                                    <button onClick={() => setIsFitScreen(!isFitScreen)} className={`w-12 h-12 flex items-center justify-center rounded-2xl transition-all ${isFitScreen ? 'bg-blue-600 text-white' : 'bg-white/5 text-neutral-300 hover:bg-white/20'}`} title="화면 꽉 채우기 (블랙바 제거)">
+                                        <i className={`fas ${isFitScreen ? 'fa-crop-alt' : 'fa-compress'}`}></i>
                                     </button>
                                 </div>
                             </div>
                         </div>
                     </main>
 
-                    {/* 우측 관리자 패널 */}
-                    <aside className={`absolute right-0 top-0 bottom-0 w-[400px] bg-[#101010] border-l border-white/10 flex flex-col transition-transform duration-300 ease-out z-[70] shadow-2xl ${showControls ? 'translate-x-0' : 'translate-x-full'}`}>
+                    {/* 💡 보안 키패드 모달 (팝업) */}
+                    {showPinModal && (
+                        <div className="absolute inset-0 z-[200] bg-black/80 backdrop-blur-sm flex items-center justify-center">
+                            <div className="bg-[#1a1a1a] p-8 rounded-[2rem] border border-white/10 shadow-2xl flex flex-col items-center">
+                                <div className="w-16 h-16 bg-red-600/20 rounded-full flex items-center justify-center mb-4">
+                                    <i className="fas fa-lock text-red-500 text-2xl"></i>
+                                </div>
+                                <h2 className="text-xl font-bold mb-2">관리자 보안 인증</h2>
+                                <p className="text-xs text-neutral-400 mb-8 text-center leading-relaxed">설정 및 링크 관리를 위해 4자리 비밀번호를 입력하세요.<br/>(초기 비밀번호: 0000)</p>
+                                
+                                <div className="flex gap-4 mb-8">
+                                    {[0,1,2,3].map(i => (
+                                        <div key={i} className={`w-4 h-4 rounded-full transition-all ${enteredPin.length > i ? 'bg-red-500 scale-110 shadow-[0_0_10px_rgba(239,68,68,0.8)]' : 'bg-white/10'}`}></div>
+                                    ))}
+                                </div>
+                                
+                                <div className="grid grid-cols-3 gap-4">
+                                    {[1,2,3,4,5,6,7,8,9].map(num => (
+                                        <button key={num} onClick={() => handlePinInput(num.toString())} className="w-20 h-20 bg-white/5 rounded-2xl text-2xl font-bold hover:bg-white/10 active:scale-95 transition-all text-neutral-200">{num}</button>
+                                    ))}
+                                    <button onClick={() => setEnteredPin('')} className="w-20 h-20 bg-white/5 rounded-2xl text-sm font-bold text-red-400 hover:bg-white/10 active:scale-95 transition-all">CLEAR</button>
+                                    <button onClick={() => handlePinInput('0')} className="w-20 h-20 bg-white/5 rounded-2xl text-2xl font-bold hover:bg-white/10 active:scale-95 transition-all text-neutral-200">0</button>
+                                    <button onClick={() => {setShowPinModal(false); setEnteredPin('');}} className="w-20 h-20 bg-white/5 rounded-2xl text-sm font-bold text-neutral-400 hover:bg-white/10 active:scale-95 transition-all">닫기</button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* 우측 관리자 패널 (잠금 해제 상태에서만 나타남) */}
+                    <aside className={`absolute right-0 top-0 bottom-0 w-[400px] bg-[#101010] border-l border-white/10 flex flex-col transition-transform duration-500 ease-out z-[70] shadow-2xl ${(showControls && !isLocked && !showPinModal) ? 'translate-x-0' : 'translate-x-full'}`}>
                         <div className="p-8 border-b border-white/10 bg-transparent">
                             <div className="flex items-center justify-between mb-8">
                                 <div className="flex items-center gap-4">
-                                    <div className="w-10 h-10 bg-red-600 rounded-xl flex items-center justify-center shadow-lg shadow-red-600/30">
-                                        <i className="fas fa-layer-group text-white"></i>
+                                    <div className="w-10 h-10 bg-green-600 rounded-xl flex items-center justify-center shadow-lg shadow-green-600/30">
+                                        <i className="fas fa-unlock text-white"></i>
                                     </div>
                                     <div>
-                                        <h3 className="text-lg font-bold tracking-tight">재생 목록</h3>
-                                        <p className="text-[10px] text-neutral-400 font-bold uppercase tracking-widest">Signage Asset</p>
+                                        <h3 className="text-lg font-bold tracking-tight">관리자 패널</h3>
+                                        <p className="text-[10px] text-neutral-400 font-bold uppercase tracking-widest">Unlocked Asset</p>
                                     </div>
                                 </div>
                                 <button onClick={() => setShowBulkAdd(!showBulkAdd)} className="text-[10px] font-bold bg-white/10 hover:bg-white/20 px-3 py-2 rounded-lg text-white transition-colors uppercase">
-                                    일괄 추가
+                                    일괄 작업
                                 </button>
                             </div>
 
                             {showBulkAdd ? (
                                 <div className="space-y-4">
+                                    <div className="flex justify-between items-center mb-1">
+                                        <span className="text-xs text-neutral-400 font-bold">링크 가져오기 / 내보내기</span>
+                                        <button onClick={exportPlaylist} className="text-xs text-blue-400 hover:text-blue-300 underline font-bold">
+                                            <i className="fas fa-file-export mr-1"></i>현재 목록 추출
+                                        </button>
+                                    </div>
                                     <textarea 
                                         value={bulkInput}
                                         onChange={(e) => setBulkInput(e.target.value)}
-                                        placeholder="유튜브 주소들을 줄바꿈으로 입력하세요... (여러 개 가능)"
-                                        className="w-full h-40 bg-black/60 border border-white/20 rounded-2xl px-5 py-4 text-xs focus:border-red-500 outline-none transition-all placeholder:text-neutral-600 resize-none custom-scrollbar text-white"
+                                        placeholder="유튜브 주소들을 줄바꿈으로 입력하세요..."
+                                        className="w-full h-32 bg-black/60 border border-white/20 rounded-2xl px-5 py-4 text-xs focus:border-blue-500 outline-none transition-all placeholder:text-neutral-600 resize-none custom-scrollbar text-white"
                                     ></textarea>
                                     <div className="flex gap-2">
-                                        <button onClick={handleBulkAdd} className="flex-1 bg-red-600 hover:bg-red-700 py-3 rounded-xl text-xs font-bold transition-all shadow-lg shadow-red-600/30 text-white">목록에 추가</button>
+                                        <button onClick={handleBulkAdd} className="flex-1 bg-blue-600 hover:bg-blue-700 py-3 rounded-xl text-xs font-bold transition-all shadow-lg shadow-blue-600/30 text-white">목록 덮어쓰기</button>
                                         <button onClick={() => setShowBulkAdd(false)} className="px-5 py-3 bg-white/10 hover:bg-white/20 rounded-xl text-xs font-bold text-white transition-all">취소</button>
                                     </div>
                                 </div>
@@ -408,9 +500,9 @@
                                         onChange={(e) => setInputUrl(e.target.value)}
                                         onKeyDown={(e) => e.key === 'Enter' && addVideo()}
                                         placeholder="유튜브 영상 링크 붙여넣기..."
-                                        className="flex-1 bg-black/60 border border-white/20 rounded-xl px-5 py-3 text-xs focus:border-red-500 outline-none transition-all placeholder:text-neutral-600 text-white"
+                                        className="flex-1 bg-black/60 border border-white/20 rounded-xl px-5 py-3 text-xs focus:border-green-500 outline-none transition-all placeholder:text-neutral-600 text-white"
                                     />
-                                    <button onClick={addVideo} className="bg-red-600 hover:bg-red-700 w-12 rounded-xl flex items-center justify-center transition-all active:scale-95 shadow-lg shadow-red-600/30 text-white">
+                                    <button onClick={addVideo} className="bg-green-600 hover:bg-green-700 w-12 rounded-xl flex items-center justify-center transition-all active:scale-95 shadow-lg shadow-green-600/30 text-white">
                                         <i className="fas fa-plus"></i>
                                     </button>
                                 </div>
@@ -427,11 +519,11 @@
                                     </div>
                                 )}
                                 {playlist.map((video, index) => (
-                                    <div key={video.id} className={`group p-4 rounded-2xl flex items-center gap-5 transition-all cursor-pointer ${currentIndex === index ? 'bg-red-600/30 border border-red-500/50 shadow-lg shadow-red-900/20' : 'bg-black/40 border border-white/5 hover:bg-white/10'}`} onClick={() => {setCurrentIndex(index); setIsPlaying(true);}}>
+                                    <div key={video.id} className={`group p-4 rounded-2xl flex items-center gap-5 transition-all cursor-pointer ${currentIndex === index ? 'bg-white/10 border border-white/20 shadow-lg' : 'bg-black/40 border border-white/5 hover:bg-white/10'}`} onClick={() => {setCurrentIndex(index); setIsPlaying(true);}}>
                                         <div className="relative w-24 h-14 rounded-xl overflow-hidden flex-shrink-0 shadow-lg border border-white/10">
                                             <img src={`https://img.youtube.com/vi/${video.videoId}/mqdefault.jpg`} className="w-full h-full object-cover" alt="썸네일" />
                                             {currentIndex === index && (
-                                                <div className="absolute inset-0 bg-red-600/60 flex items-center justify-center backdrop-blur-[1px]">
+                                                <div className="absolute inset-0 bg-black/60 flex items-center justify-center backdrop-blur-[1px]">
                                                     <div className="w-2 h-2 bg-white rounded-full animate-ping"></div>
                                                 </div>
                                             )}
@@ -449,14 +541,14 @@
                         </div>
 
                         {/* 시스템 상태 하단 바 */}
-                        <div className="p-8 bg-[#0a0a0a]/80 border-t border-white/10 text-[10px] font-bold text-neutral-500 flex flex-col gap-4">
+                        <div className="p-8 bg-[#0a0a0a] border-t border-white/10 text-[10px] font-bold text-neutral-500 flex flex-col gap-4">
                             <div className="flex justify-between items-center bg-black/50 p-3 rounded-xl border border-white/5">
                                 <span className="flex items-center gap-2"><i className="fas fa-clock text-blue-500"></i> LOCAL TIME</span>
                                 <span className="text-neutral-300 font-mono tracking-tighter">{currentTime.toLocaleTimeString()}</span>
                             </div>
-                            <div className="flex justify-between items-center bg-black/50 p-3 rounded-xl border border-white/5">
-                                <span className="flex items-center gap-2"><i className="fas fa-keyboard text-neutral-400"></i> 단축키</span>
-                                <span className="text-neutral-400">Enter (전체화면 및 패널 숨김)</span>
+                            <div className="flex justify-between items-center bg-black/50 p-3 rounded-xl border border-white/5 cursor-pointer hover:bg-white/5 transition-colors" onClick={toggleLock} title="다시 잠그기">
+                                <span className="flex items-center gap-2"><i className="fas fa-shield-alt text-green-500"></i> SECURITY</span>
+                                <span className="text-green-500 underline">잠금 모드로 전환</span>
                             </div>
                         </div>
                     </aside>
